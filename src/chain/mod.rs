@@ -79,7 +79,11 @@ fn verify(chain: &Chain) -> Result<(), String> {
             return Err(format!("Link broken at {} - expected hash {} but calculated {}", i, bytes_to_str(&prev_hash), bytes_to_str(&block.prev_hash)));
         }
 
-        prev_hash = hash(block);
+        let hash = hash(block);
+        if !matches_difficulty(&hash, DIFFICULTY) {
+            return Err(format!("Hash target failure at {} - expected target {} but hash was {}", i, DIFFICULTY, bytes_to_str(&hash)));
+        }
+        prev_hash = hash;
     }
 
     Ok(())
@@ -162,8 +166,7 @@ fn as_bytes(block: &Block) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use super::Blockchain;
-    use super::Chain;
+    use super::{Blockchain, Chain, ZERO_HASH, find_nonce, hash};
 
     #[test]
     fn init_works() {
@@ -183,9 +186,29 @@ mod test {
         let block1 = &chain.blocks[0];
         let block2 = &chain.blocks[1];
         assert_eq!(vec![0,0,0,0], block1.data);
-        assert_eq!(super::ZERO_HASH, block1.prev_hash);
+        assert_eq!(ZERO_HASH, block1.prev_hash);
         assert_eq!(vec![0,0,0,1], block2.data);
-        assert_eq!(super::hash(block1), block2.prev_hash);
-        assert_eq!(Ok(()), chain.verify());
+        assert_eq!(hash(block1), block2.prev_hash);
+    }
+
+    #[test]
+    fn verify_works() {
+        let mut chain: Chain = Blockchain::init();
+
+        chain.push(vec![1,2,3,4]);
+        chain.push(vec![0]);
+        chain.push(vec![5,6,7,8]);
+
+        assert!(chain.verify().is_ok());
+        chain.blocks[1].data = vec![5];
+        assert!(chain.verify().is_err());
+        chain.blocks[1].data = vec![0];
+        assert!(chain.verify().is_ok());
+        chain.blocks[2].prev_hash = ZERO_HASH;
+        assert!(chain.verify().is_err());
+        chain.blocks[2].prev_hash = hash(&chain.blocks[1]);
+        assert!(chain.verify().is_ok());
+        find_nonce(&mut chain.blocks[2], 1);
+        assert!(chain.verify().is_err());
     }
 }
