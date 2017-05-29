@@ -1,6 +1,8 @@
 extern crate crypto;
 extern crate byteorder;
 
+pub mod serialization;
+
 use std::fmt;
 use self::crypto::sha2::Sha256;
 use self::crypto::digest::Digest;
@@ -19,6 +21,7 @@ pub trait Blockchain {
     fn verify(&self) -> Result<(), String>;
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct Chain {
     pub blocks: Vec<Block>
 }
@@ -49,6 +52,7 @@ impl fmt::Debug for Chain {
     }
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub struct Block {
     pub id: u64,
     pub nonce: Nonce,

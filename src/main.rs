@@ -1,10 +1,13 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate serde_derive;
 extern crate env_logger;
 
 mod chain;
 
 use chain::Blockchain;
+use chain::serialization::{serialize, deserialize};
 
 fn main() {
     env_logger::init().unwrap();
@@ -17,6 +20,9 @@ fn main() {
     ch.push(vec![0,0,0,2]);
     println!("{:?}", ch);
     verify_chain(&ch);
+
+    let serialized = String::from_utf8(serialize(&ch)).unwrap();
+    println!("{}", serialized);
 
     println!("Changing block 1");
     ch.blocks[1].data = vec![0,0,0,0];
