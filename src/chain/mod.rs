@@ -1,21 +1,54 @@
 extern crate crypto;
+extern crate byteorder;
 
+use std::fmt;
 use self::crypto::sha2::Sha256;
 use self::crypto::digest::Digest;
-use std;
+use self::byteorder::{BigEndian, WriteBytesExt};
 
 pub type Nonce = u32;
 pub type Hash = [u8; 32];
-pub type Data = u64;
+pub type Data = Vec<u8>;
 
 const ZERO_HASH: Hash = [0; 32];
 const DIFFICULTY: u32 = 4;
+
+pub trait Blockchain {
+    fn init() -> Self;
+    fn push(&mut self, data: Data);
+    fn verify(&self) -> Result<(), String>;
+}
 
 pub struct Chain {
     pub blocks: Vec<Block>
 }
 
-#[repr(packed)]
+impl Blockchain for Chain {
+    fn init() -> Self {
+        init()
+    }
+
+    fn push(&mut self, data: Data) {
+        push(self, data);
+    }
+
+    fn verify(&self) -> Result<(), String> {
+        verify(self)
+    }
+}
+
+impl fmt::Debug for Chain {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Chain:\n")?;
+        for block in &self.blocks {
+            let hash = hash(block);
+            write!(f, "\t[id={}, nonce={}, data={}, prev={}, hash={}]\n", block.id, block.nonce,
+                   bytes_to_str(&block.data), bytes_to_str(&block.prev_hash), bytes_to_str(&hash))?;
+        }
+        Ok(())
+    }
+}
+
 pub struct Block {
     pub id: u64,
     pub nonce: Nonce,
@@ -23,51 +56,40 @@ pub struct Block {
     pub prev_hash: Hash,
 }
 
-pub fn push(chain: &mut Chain, data: Data) {
+fn push(chain: &mut Chain, data: Data) {
     let new_block = make_block(chain.blocks.last(), data);
     info!("Added block to chain with id={}", new_block.id);
     chain.blocks.push(new_block);
 }
 
-pub fn init() -> Chain {
+fn init() -> Chain {
     info!("Creating new blockchain");
     Chain {
         blocks: Vec::new()
     }
 }
 
-pub fn verify(chain: &Chain) -> Result<(), String> {
-    let mut i = 0;
+fn verify(chain: &Chain) -> Result<(), String> {
     let mut prev_hash = ZERO_HASH;
-    for block in &chain.blocks {
-        if block.id != i {
+    for (i, block) in chain.blocks.iter().enumerate() {
+        if block.id != (i as u64) {
             return Err(format!("Id mismatch at {} - expected {} but found {}", i, i, block.id));
         }
         if block.prev_hash != prev_hash {
-            return Err(format!("Link broken at {} - expected hash {} but calculated {}", i, hash_to_str(&prev_hash), hash_to_str(&block.prev_hash)));
+            return Err(format!("Link broken at {} - expected hash {} but calculated {}", i, bytes_to_str(&prev_hash), bytes_to_str(&block.prev_hash)));
         }
 
-        i += 1;
         prev_hash = hash(block);
     }
 
     Ok(())
 }
 
-pub fn print(chain: &Chain) {
-    for block in &chain.blocks {
-        let hash = hash(block);
-        let prev_hash_str = hash_to_str(&block.prev_hash);
-        let hash_str = hash_to_str(&hash);
-        println!("Block {}: [nonce={}, data={}, prev={}, hash={}]", block.id, block.nonce, block.data, prev_hash_str, hash_str);
-    }
-}
-
-fn hash_to_str(hash: &Hash) -> String {
+fn bytes_to_str(arr: &[u8]) -> String {
     use std::fmt::Write;
 
     let mut s = String::new();
-    for &byte in hash {
+    for &byte in arr {
         write!(&mut s, "{:02x}", byte).unwrap();
     }
     s
@@ -122,16 +144,48 @@ fn leading_zero_bits(hash: &Hash) -> u32 {
 fn hash(block: &Block) -> Hash {
     let data = as_bytes(block);
     let mut hasher = Sha256::new();
-    hasher.input(data);
+    hasher.input(data.as_slice());
 
     let mut result = [0; 32];
     hasher.result(&mut result);
     result
 }
 
-fn as_bytes(block: & Block) -> & [u8] {
-    let ptr = (block as *const Block) as *const u8;
-    unsafe {
-        std::slice::from_raw_parts(ptr, std::mem::size_of::<Block>())
+fn as_bytes(block: &Block) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.write_u64::<BigEndian>(block.id).unwrap();
+    bytes.write_u32::<BigEndian>(block.nonce).unwrap();
+    bytes.extend(&block.data);
+    bytes.extend_from_slice(&block.prev_hash);
+    bytes
+}
+
+#[cfg(test)]
+mod test {
+    use super::Blockchain;
+    use super::Chain;
+
+    #[test]
+    fn init_works() {
+        let chain: Chain = Blockchain::init();
+        assert_eq!(0, chain.blocks.len());
+    }
+
+    #[test]
+    fn push_works() {
+        let mut chain: Chain = Blockchain::init();
+
+        chain.push(vec![0,0,0,0]);
+        assert_eq!(1, chain.blocks.len());
+        chain.push(vec![0,0,0,1]);
+        assert_eq!(2, chain.blocks.len());
+
+        let block1 = &chain.blocks[0];
+        let block2 = &chain.blocks[1];
+        assert_eq!(vec![0,0,0,0], block1.data);
+        assert_eq!(super::ZERO_HASH, block1.prev_hash);
+        assert_eq!(vec![0,0,0,1], block2.data);
+        assert_eq!(super::hash(block1), block2.prev_hash);
+        assert_eq!(Ok(()), chain.verify());
     }
 }
